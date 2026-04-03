@@ -5,8 +5,8 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <substrate.h>
-#import <mach-o/dyld.h>
+#import "substrate.h"
+#import <dlfcn.h>
 #import <arpa/inet.h>
 #import <netdb.h>
 

@@ -17,10 +17,27 @@ jobs:
       - name: Install ldid
         run: brew install ldid
 
-      - name: Prepare headers
+      - name: Prepare substrate header
         run: |
           mkdir -p include
-          curl -L https://raw.githubusercontent.com/theos/headers/master/substrate.h -o include/substrate.h
+          cat > include/substrate.h << 'EOF'
+          #ifndef SUBSTRATE_H
+          #define SUBSTRATE_H
+          
+          #include <cstddef>
+          
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          
+          void MSHookFunction(void *symbol, void *replace, void **result);
+          
+          #ifdef __cplusplus
+          }
+          #endif
+          
+          #endif
+          EOF
 
       - name: Compile tweak.mm to dylib
         run: |
