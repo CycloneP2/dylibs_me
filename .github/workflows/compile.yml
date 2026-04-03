@@ -1,0 +1,43 @@
+name: Compile iOS Dylib
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install ldid
+        run: brew install ldid
+
+      - name: Download iOS SDK & Headers
+        run: |
+          # Create a directory for missing headers
+          mkdir -p include
+          # Download a minimal substrate.h for MSHookFunction support
+          curl -L https://raw.githubusercontent.com/theos/headers/master/substrate.h -o include/substrate.h
+
+      - name: Compile Tweak
+        run: |
+          xcrun -sdk iphoneos clang++ -dynamiclib -arch arm64 \
+            -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+            -miphoneos-version-min=14.0 \
+            -I./include \
+            -Wl,-undefined,dynamic_lookup \
+            -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
+            tweak.mm -o mlbb_m.dylib
+
+      - name: Sign Dylib
+        run: ldid -S mlbb_m.dylib
+
+      - name: Upload Artifact
+        uses: actions/artifacts@v3
+        with:
+          name: mlbb_m_dylib
+          path: mlbb_m.dylib
