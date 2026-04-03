@@ -37,7 +37,7 @@ jobs:
         run: ldid -S mlbb_m.dylib
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mlbb_m_dylib
           path: mlbb_m.dylib
