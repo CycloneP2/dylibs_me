@@ -165,7 +165,7 @@ static void showMenu() {
 }
 
 // ========== CONSTRUCTOR ==========
-%ctor {
+static __attribute__((constructor)) void init() {
     dispatch_async(dispatch_get_main_queue(), ^{
         setupSwitches();
         applyPatches();
