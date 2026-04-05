@@ -26,6 +26,7 @@ static BOOL banBypassEnabled = NO;
 // ============================================
 @interface ModMenu : UIView
 @property (nonatomic, strong) UITextView *logView;
+@property (nonatomic, assign) CGPoint startLocation;
 - (void)appendLog:(NSString *)message;
 @end
 
