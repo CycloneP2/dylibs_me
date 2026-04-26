@@ -71,8 +71,8 @@ static _Atomic BOOL g_safeMode = false;
 
 static UITextView *g_logView = nil;
 
-struct Vector3 { float x, y, z; };
-struct Vector2 { float x, y; };
+typedef struct { float x, y, z; } Vector3;
+typedef struct { float x, y; } Vector2;
 
 // --- HELPERS ---
 uintptr_t get_base(const char *name) {
@@ -313,7 +313,6 @@ NSString* read_unity_string(uintptr_t ptr) {
                                             NSForegroundColorAttributeName: [UIColor cyanColor]};
                     [cdText drawAtPoint:CGPointMake(x - boxWidth/2, y + 5) withAttributes:cdAttrs];
                 }
-            }
         }
     }
 }
