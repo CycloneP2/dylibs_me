@@ -26,6 +26,7 @@ jobs:
           #ifndef SUBSTRATE_H
           #define SUBSTRATE_H
           #include <stdbool.h>
+          #include <stddef.h>
           #ifdef __cplusplus
           extern "C" {
           #endif
@@ -36,10 +37,27 @@ jobs:
           #endif
           EOF
 
-      - name: Compile pH1Pro.m to ph1mlbb.dylib
+      - name: Compile tweak to ph1mlbb.dylib
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun -sdk iphoneos clang \
+          
+          # Try different possible source file names
+          if [ -f "tweak.mm" ]; then
+            SOURCE="tweak.mm"
+          elif [ -f "pH1Pro.m" ]; then
+            SOURCE="pH1Pro.m"
+          elif [ -f "ph1mlbb.mm" ]; then
+            SOURCE="ph1mlbb.mm"
+          elif [ -f "Tweak.xm" ]; then
+            SOURCE="Tweak.xm"
+          else
+            echo "Error: No source file found! (looking for tweak.mm, pH1Pro.m, ph1mlbb.mm, Tweak.xm)"
+            exit 1
+          fi
+          
+          echo "Compiling $SOURCE"
+          
+          xcrun -sdk iphoneos clang++ \
             -dynamiclib \
             -arch arm64 \
             -isysroot "$SDK" \
@@ -51,8 +69,7 @@ jobs:
             -framework Foundation \
             -framework CoreGraphics \
             -framework QuartzCore \
-            -framework ObjectiveC \
-            pH1Pro.m \
+            "$SOURCE" \
             -o ph1mlbb.dylib
 
       - name: Sign dylib with entitlements
@@ -70,6 +87,8 @@ jobs:
               <true/>
               <key>com.apple.security.cs.allow-dyld-environment-variables</key>
               <true/>
+              <key>com.apple.security.cs.debugger-attach</key>
+              <true/>
           </dict>
           </plist>
           EOF
@@ -78,8 +97,14 @@ jobs:
 
       - name: Verify dylib
         run: |
+          echo "=== File Info ==="
           file ph1mlbb.dylib
+          echo ""
+          echo "=== Load Commands ==="
           otool -L ph1mlbb.dylib
+          echo ""
+          echo "=== Architecture ==="
+          lipo -info ph1mlbb.dylib
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
