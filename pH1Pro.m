@@ -3,7 +3,7 @@
 #import <mach-o/dyld.h>
 #import <dlfcn.h>
 #import <stdatomic.h>
-#import <sys/syscall.h>
+#import <objc/runtime.h>
 #import <mach/mach.h>
 
 // --- CONFIGURATION & OFFSETS ---
@@ -535,9 +535,6 @@ void new_Map(void *player, float inner, float outer) {
 
 __attribute__((constructor))
 static void initialize() {
-    // Basic anti-debug bypass
-    syscall(SYS_ptrace, 31, 0, 0, 0); 
-    
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         g_unityBase = get_base(UNITY_NAME);
         
