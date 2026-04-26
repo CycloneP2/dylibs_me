@@ -407,9 +407,9 @@ NSString* read_unity_string(uintptr_t ptr) {
         [self addToggle:@"Achievement Hack" y:&y state:&g_achievementHack];
         [self addToggle:@"SAFE MODE (Bypass Detect)" y:&y state:&g_safeMode];
         
-        *y += 10;
+        y += 10;
         UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        resetBtn.frame = CGRectMake(0, *y, self.contentArea.frame.size.width, 30);
+        resetBtn.frame = CGRectMake(0, y, self.contentArea.frame.size.width, 30);
         resetBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.1 blue:0.1 alpha:0.8];
         [resetBtn setTitle:@"RESET ACCOUNT (Anti Ban)" forState:UIControlStateNormal];
         resetBtn.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -419,9 +419,9 @@ NSString* read_unity_string(uintptr_t ptr) {
         resetBtn.layer.borderColor = [UIColor redColor].CGColor;
         [resetBtn addTarget:self action:@selector(resetAccount) forControlEvents:UIControlEventTouchUpInside];
         [self.contentArea addSubview:resetBtn];
-        *y += 40;
+        y += 40;
 
-        g_logView = [[UITextView alloc] initWithFrame:CGRectMake(0, *y, self.contentArea.frame.size.width, 80)];
+        g_logView = [[UITextView alloc] initWithFrame:CGRectMake(0, y, self.contentArea.frame.size.width, 80)];
         g_logView.backgroundColor = [UIColor blackColor];
         g_logView.textColor = [UIColor greenColor];
         g_logView.font = [UIFont fontWithName:@"Courier" size:10];
