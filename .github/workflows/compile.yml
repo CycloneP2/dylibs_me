@@ -35,18 +35,6 @@ jobs:
           #endif
           #endif
           EOF
-          
-          # Create stdatomic.h fallback if needed
-          cat > include/stdatomic.h << 'EOF'
-          #ifndef STDATOMIC_H
-          #define STDATOMIC_H
-          #include <stdbool.h>
-          #define _Atomic volatile
-          typedef _Bool atomic_bool;
-          static inline void atomic_store(volatile _Bool *obj, _Bool value) { *obj = value; }
-          static inline _Bool atomic_load(volatile _Bool *obj) { return *obj; }
-          #endif
-          EOF
 
       - name: Compile pH1Pro.m to ph1mlbb.dylib
         run: |
