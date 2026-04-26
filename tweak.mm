@@ -3,7 +3,7 @@
 #import <mach-o/dyld.h>
 #import <dlfcn.h>
 #import <stdatomic.h>
-#import <sys/syscall.h>
+#import <objc/runtime.h>
 #import <mach/mach.h>
 
 // --- CONFIGURATION & OFFSETS ---
@@ -37,6 +37,8 @@
 #define RVA_GET_SKILL_CD    0x66E4A64 
 #define RVA_GET_CUR_CD      0x67BD63C // ShowCoolDownComp.GetCurCD
 #define RVA_REVEAL_MAP      0x4FB2878 // ShowPlayer.SetFowRevealerRange
+#define RVA_IS_TUTORIAL      0x51666C8 // SystemData.IsTutorialBattle
+#define RVA_ACHIEVE_COMP     0x8A6AA34 // Achievement.get_completed
 #define RVA_GET_SKIN        0x694752  // ShowPlayer.m_iOriginSkinId (offset)
 #define RVA_CAMERA_DIST     0x9AA10   
 #define OFF_SUMMON_SKILL_ID 0x9A4     // ShowPlayer -> m_iSummonSkillId
@@ -59,6 +61,8 @@ static _Atomic BOOL g_spellCD = false;
 static _Atomic BOOL g_mapHack = false;
 static _Atomic float g_droneView = 15.0f;
 static _Atomic BOOL g_range = false;
+static _Atomic BOOL g_skipTutorial = false;
+static _Atomic BOOL g_achievementHack = false;
 
 // Special Mods
 static _Atomic BOOL g_kimmyAuto = false;
@@ -71,8 +75,8 @@ static _Atomic BOOL g_safeMode = false;
 
 static UITextView *g_logView = nil;
 
-struct Vector3 { float x, y, z; };
-struct Vector2 { float x, y; };
+typedef struct { float x, y, z; } Vector3;
+typedef struct { float x, y; } Vector2;
 
 // --- HELPERS ---
 uintptr_t get_base(const char *name) {
@@ -313,7 +317,6 @@ NSString* read_unity_string(uintptr_t ptr) {
                                             NSForegroundColorAttributeName: [UIColor cyanColor]};
                     [cdText drawAtPoint:CGPointMake(x - boxWidth/2, y + 5) withAttributes:cdAttrs];
                 }
-            }
         }
     }
 }
@@ -400,9 +403,25 @@ NSString* read_unity_string(uintptr_t ptr) {
     } else { // Misc
         [self addSection:@"Miscellaneous" y:&y];
         [self addToggle:@"Map Hack" y:&y state:&g_mapHack];
+        [self addToggle:@"Skip Tutorial" y:&y state:&g_skipTutorial];
+        [self addToggle:@"Achievement Hack" y:&y state:&g_achievementHack];
         [self addToggle:@"SAFE MODE (Bypass Detect)" y:&y state:&g_safeMode];
         
-        g_logView = [[UITextView alloc] initWithFrame:CGRectMake(0, y, self.contentArea.frame.size.width, 100)];
+        *y += 10;
+        UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        resetBtn.frame = CGRectMake(0, *y, self.contentArea.frame.size.width, 30);
+        resetBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.1 blue:0.1 alpha:0.8];
+        [resetBtn setTitle:@"RESET ACCOUNT (Anti Ban)" forState:UIControlStateNormal];
+        resetBtn.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+        [resetBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        resetBtn.layer.cornerRadius = 4;
+        resetBtn.layer.borderWidth = 1;
+        resetBtn.layer.borderColor = [UIColor redColor].CGColor;
+        [resetBtn addTarget:self action:@selector(resetAccount) forControlEvents:UIControlEventTouchUpInside];
+        [self.contentArea addSubview:resetBtn];
+        *y += 40;
+
+        g_logView = [[UITextView alloc] initWithFrame:CGRectMake(0, *y, self.contentArea.frame.size.width, 80)];
         g_logView.backgroundColor = [UIColor blackColor];
         g_logView.textColor = [UIColor greenColor];
         g_logView.font = [UIFont fontWithName:@"Courier" size:10];
@@ -473,6 +492,42 @@ NSString* read_unity_string(uintptr_t ptr) {
     atomic_store(state, sl.value);
 }
 
+- (void)resetAccount {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *docPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *libPath = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
+    
+    NSArray *paths = @[
+        [docPath stringByAppendingPathComponent:@"Dragon2017/Assets/UnityData"],
+        [libPath stringByAppendingPathComponent:@"Application Support/com.mobile.legends"],
+        [libPath stringByAppendingPathComponent:@"Preferences/com.mobile.legends.plist"]
+    ];
+    
+    for (NSString *path in paths) {
+        if ([fm fileExistsAtPath:path]) [fm removeItemAtPath:path error:nil];
+    }
+    
+    UIWindow *win = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                win = scene.windows.firstObject;
+                break;
+            }
+        }
+    }
+    if (!win) win = [UIApplication sharedApplication].keyWindow;
+    if (!win) win = [[UIApplication sharedApplication] windows].firstObject;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Account Reset" 
+                                                                   message:@"Account data cleared! The game will now exit. Please restart to create a new account." 
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        exit(0);
+    }]];
+    [win.rootViewController presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)toggleMenu { self.hidden = !self.hidden; }
 - (void)touchesBegan:(NSSet *)t withEvent:(UIEvent *)e { self.startPos = [[t anyObject] locationInView:self]; }
 - (void)touchesMoved:(NSSet *)t withEvent:(UIEvent *)e {
@@ -534,11 +589,24 @@ void new_Map(void *player, float inner, float outer) {
     old_Map(player, inner, outer);
 }
 
+bool (*old_IsTutorial)();
+bool new_IsTutorial() {
+    if (atomic_load(&g_skipTutorial)) return false;
+    return old_IsTutorial();
+}
+
+bool (*old_AchieveComp)(void* instance);
+bool new_AchieveComp(void* instance) {
+    if (atomic_load(&g_achievementHack)) return true;
+    return old_AchieveComp(instance);
+}
+
 __attribute__((constructor))
 static void initialize() {
-    // Basic anti-debug bypass
-    syscall(SYS_ptrace, 31, 0, 0, 0); 
-    
+    // Anti-debug bypass: ptrace(PT_DENY_ATTACH, 0, 0, 0)
+    // 26 is the syscall number for ptrace, 31 is PT_DENY_ATTACH
+    syscall(26, 31, 0, 0, 0); 
+
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         g_unityBase = get_base(UNITY_NAME);
         
@@ -565,13 +633,23 @@ static void initialize() {
             // Map Hack Hook (Verified RVA)
             MSHookFunction((void *)(g_unityBase + RVA_REVEAL_MAP), (void *)new_Map, (void **)&old_Map);
             
-            // Future Development Hooks (Placeholders)
-            // MSHookFunction((void *)(g_unityBase + RVA_GET_SKIN), (void *)new_GetSkin, (void **)&old_GetSkin);
-
+            // Skip Tutorial & Achievement Hack Hooks
+            MSHookFunction((void *)(g_unityBase + RVA_IS_TUTORIAL), (void *)new_IsTutorial, (void **)&old_IsTutorial);
+            MSHookFunction((void *)(g_unityBase + RVA_ACHIEVE_COMP), (void *)new_AchieveComp, (void **)&old_AchieveComp);
+            
             // Start Drone View Patcher
             update_drone_view();
             
-            UIWindow *win = [UIApplication sharedApplication].keyWindow;
+            UIWindow *win = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        win = scene.windows.firstObject;
+                        break;
+                    }
+                }
+            }
+            if (!win) win = [UIApplication sharedApplication].keyWindow;
             if (!win) win = [[UIApplication sharedApplication] windows].firstObject;
 
             // Add ESP Overlay
