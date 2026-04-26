@@ -132,7 +132,7 @@ NSString* read_unity_string(uintptr_t ptr) {
     return self;
 }
 
-- (void)updateESP { if (atomic_load(&g_esp)) [self setNeedsDisplay]; }
+- (void)updateESP { if (g_esp) [self setNeedsDisplay]; }
 
 // Helper methods (Implementasi placeholder)
 - (float)getHeroHpPercent:(void*)player {
@@ -189,7 +189,7 @@ NSString* read_unity_string(uintptr_t ptr) {
 }
 
 - (void)drawRect:(CGRect)rect {
-    if (!atomic_load(&g_esp) || !g_unityBase) return;
+    if (!g_esp || !g_unityBase) return;
     
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     float scale = [UIScreen mainScreen].scale;
@@ -232,11 +232,11 @@ NSString* read_unity_string(uintptr_t ptr) {
 
             // FILTER: Fokus Enemy (Default)
             if (isHero) {
-                if (team == myTeam && !atomic_load(&g_mapHack)) continue;
+                if (team == myTeam && !g_mapHack) continue;
             } else if (isBoss) {
-                if (!atomic_load(&g_espJungle)) continue;
+                if (!g_espJungle) continue;
             } else if (isJungle) {
-                if (!atomic_load(&g_espCreep)) continue;
+                if (!g_espCreep) continue;
             }
 
             // FIX: Posisi dengan Retina Scaling
@@ -253,14 +253,14 @@ NSString* read_unity_string(uintptr_t ptr) {
             else if (isJungle) drawColor = [UIColor yellowColor];
 
             // 1. Gambar BOX
-            if (atomic_load(&g_espBox)) {
+            if (g_espBox) {
                 CGContextSetStrokeColorWithColor(ctx, drawColor.CGColor);
                 CGContextSetLineWidth(ctx, 1.2);
                 CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight, boxWidth, boxHeight));
             }
 
             // 2. Gambar SNAP LINE
-            if (atomic_load(&g_snapLine) && isHero) {
+            if (g_snapLine && isHero) {
                 CGContextSetStrokeColorWithColor(ctx, [drawColor colorWithAlphaComponent:0.5].CGColor);
                 CGContextSetLineWidth(ctx, 1.0);
                 CGContextMoveToPoint(ctx, screenW / 2, screenH);
@@ -269,7 +269,7 @@ NSString* read_unity_string(uintptr_t ptr) {
             }
             
             // 3. Gambar HP BAR
-            if (atomic_load(&g_hpBar)) {
+            if (g_hpBar) {
                 float hpPercent = [self getHeroHpPercent:player];
                 CGContextSetFillColorWithColor(ctx, [UIColor darkGrayColor].CGColor);
                 CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth, 4));
@@ -282,7 +282,7 @@ NSString* read_unity_string(uintptr_t ptr) {
             
             // Rank Info Logic
             NSString *rankStr = @"";
-            if (atomic_load(&g_rankInfo)) {
+            if (g_rankInfo) {
                 uint32_t rankLvl = *(uint32_t*)((uintptr_t)player + OFF_RANK_LEVEL);
                 if (rankLvl >= 7) rankStr = @"[Mythic] ";
                 else if (rankLvl >= 6) rankStr = @"[Legend] ";
@@ -295,14 +295,14 @@ NSString* read_unity_string(uintptr_t ptr) {
             [info drawAtPoint:CGPointMake(x - boxWidth/2, y - boxHeight - 20) withAttributes:attrs];
 
                 // 5. Draw Skill CD ESP
-                if (atomic_load(&g_skillCD) && isHero) {
+                if (g_skillCD && isHero) {
                     float s1 = [self getSkillCooldown:player slot:0];
                     float s2 = [self getSkillCooldown:player slot:1];
                     float s3 = [self getSkillCooldown:player slot:2]; // Ult
                     
                     // Battle Spell CD
                     float spellCD = 0;
-                    if (atomic_load(&g_spellCD)) {
+                    if (g_spellCD) {
                         int spellID = *(int*)((uintptr_t)player + OFF_SUMMON_SKILL_ID);
                         spellCD = [self getSkillCooldown:player withID:spellID];
                     }
@@ -450,9 +450,9 @@ NSString* read_unity_string(uintptr_t ptr) {
     
     UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(card.frame.size.width - 55, 2, 40, 30)];
     sw.transform = CGAffineTransformMakeScale(0.7, 0.7);
-    sw.on = atomic_load(state);
+    sw.on = *state;
     sw.onTintColor = [UIColor redColor];
-    objc_setAssociatedObject(sw, "state_ptr", [NSValue valueWithPointer:state], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(sw, "state_ptr", [NSValue valueWithPointer:(void*)state], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [sw addTarget:self action:@selector(onSwitch:) forControlEvents:UIControlEventValueChanged];
     [card addSubview:sw];
     *y += 40;
@@ -464,32 +464,31 @@ NSString* read_unity_string(uintptr_t ptr) {
     [self.contentArea addSubview:l];
     
     UISlider *sl = [[UISlider alloc] initWithFrame:CGRectMake(0, *y + 15, self.contentArea.frame.size.width, 20)];
-    sl.minimumValue = min; sl.maximumValue = max; sl.value = atomic_load(state);
+    sl.minimumValue = min; sl.maximumValue = max; sl.value = *state;
     sl.minimumTrackTintColor = [UIColor redColor];
-    objc_setAssociatedObject(sl, "state_ptr", [NSValue valueWithPointer:state], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(sl, "state_ptr", [NSValue valueWithPointer:(void*)state], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [sl addTarget:self action:@selector(onSlider:) forControlEvents:UIControlEventValueChanged];
     [self.contentArea addSubview:sl];
     *y += 45;
 }
 
 - (void)onSwitch:(UISwitch *)sw {
-    _Atomic BOOL *state = [objc_getAssociatedObject(sw, "state_ptr") pointerValue];
-    atomic_store(state, sw.on);
+    _Atomic BOOL *state = (_Atomic BOOL *)[objc_getAssociatedObject(sw, "state_ptr") pointerValue];
+    if (!state) return;
+    *state = sw.on;
     
-    // SAFE MODE Logic
     if (state == &g_safeMode && sw.on) {
-        atomic_store(&g_range, false);
-        atomic_store(&g_skinHack, false);
+        g_range = false;
+        g_skinHack = false;
         add_log(@"SAFE MODE: High-risk mods disabled.");
-        [self tabChanged:nil]; // Refresh UI
+        [self tabChanged:nil];
     }
-    
     add_log([NSString stringWithFormat:@"Toggle: %@", sw.on ? @"ON" : @"OFF"]);
 }
 
 - (void)onSlider:(UISlider *)sl {
-    _Atomic float *state = [objc_getAssociatedObject(sl, "state_ptr") pointerValue];
-    atomic_store(state, sl.value);
+    _Atomic float *state = (_Atomic float *)[objc_getAssociatedObject(sl, "state_ptr") pointerValue];
+    if (state) *state = sl.value;
 }
 
 - (void)resetAccount {
@@ -540,7 +539,7 @@ NSString* read_unity_string(uintptr_t ptr) {
 float (*old_R)(void *i);
 float new_R(void *i) { 
     if(!i || (uintptr_t)i < 0x100000) return old_R(i); 
-    return atomic_load(&g_range) ? 999.0f : old_R(i); 
+    return g_range ? 999.0f : old_R(i); 
 }
 
 // Drone View Updater (Timer based)
@@ -555,7 +554,7 @@ void update_drone_view() {
     dispatch_source_set_timer(droneTimer, DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC, 0.1 * NSEC_PER_SEC);
     dispatch_source_set_event_handler(droneTimer, ^{
         if (g_unityBase && g_unityBase > 0x100000) {
-            float val = atomic_load(&g_droneView);
+            float val = g_droneView;
             if (val > 15.0f) {
                 uintptr_t addr = g_unityBase + RVA_CAMERA_DIST;
                 if (addr > 0x100000) {
@@ -576,13 +575,13 @@ void update_drone_view() {
 // --- DEVELOPMENT HOOKS (PLANNED) ---
 int (*old_GetSkin)(void *player);
 int new_GetSkin(void *player) {
-    if (atomic_load(&g_skinHack)) return 1; // Default skin 1 (or custom logic)
+    if (g_skinHack) return 1; // Default skin 1 (or custom logic)
     return old_GetSkin(player);
 }
 
 void (*old_Map)(void *player, float inner, float outer);
 void new_Map(void *player, float inner, float outer) {
-    if (atomic_load(&g_mapHack)) {
+    if (g_mapHack) {
         inner = 1000.0f; 
         outer = 1000.0f;
     }
@@ -591,21 +590,23 @@ void new_Map(void *player, float inner, float outer) {
 
 bool (*old_IsTutorial)();
 bool new_IsTutorial() {
-    if (atomic_load(&g_skipTutorial)) return false;
+    if (g_skipTutorial) return false;
     return old_IsTutorial();
 }
 
 bool (*old_AchieveComp)(void* instance);
 bool new_AchieveComp(void* instance) {
-    if (atomic_load(&g_achievementHack)) return true;
+    if (g_achievementHack) return true;
     return old_AchieveComp(instance);
 }
 
 __attribute__((constructor))
 static void initialize() {
     // Anti-debug bypass: ptrace(PT_DENY_ATTACH, 0, 0, 0)
-    // 26 is the syscall number for ptrace, 31 is PT_DENY_ATTACH
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     syscall(26, 31, 0, 0, 0); 
+    #pragma clang diagnostic pop
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         g_unityBase = get_base(UNITY_NAME);
