@@ -1,4 +1,4 @@
-name: Compile iOS Dylib
+name: Compile pH-1 Pro Dylib
 
 on:
   push:
@@ -17,9 +17,11 @@ jobs:
       - name: Install ldid
         run: brew install ldid
 
-      - name: Prepare substrate header
+      - name: Create include directory and headers
         run: |
           mkdir -p include
+          
+          # Create substrate.h
           cat > include/substrate.h << 'EOF'
           #ifndef SUBSTRATE_H
           #define SUBSTRATE_H
@@ -38,8 +40,28 @@ jobs:
           
           #endif
           EOF
+          
+          # Create stdatomic.h fallback
+          cat > include/stdatomic.h << 'EOF'
+          #ifndef STDATOMIC_H
+          #define STDATOMIC_H
+          
+          #define _Atomic volatile
+          
+          typedef _Bool atomic_bool;
+          
+          static inline void atomic_store(volatile _Bool *obj, _Bool value) {
+              *obj = value;
+          }
+          
+          static inline _Bool atomic_load(volatile _Bool *obj) {
+              return *obj;
+          }
+          
+          #endif
+          EOF
 
-      - name: Compile tweak.mm to dylib
+      - name: Compile tweak.mm to ph1mlbb.dylib
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           xcrun -sdk iphoneos clang++ \
@@ -54,14 +76,39 @@ jobs:
             -framework Foundation \
             -framework CoreGraphics \
             -framework QuartzCore \
+            -framework ObjectiveC \
             tweak.mm \
-            -o mlbb_m.dylib
+            -o ph1mlbb.dylib
 
-      - name: Sign dylib
-        run: ldid -S mlbb_m.dylib
+      - name: Sign dylib with entitlements
+        run: |
+          # Create entitlements file
+          cat > entitlements.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>platform-application</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+              <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          
+          ldid -Sentitlements.plist ph1mlbb.dylib
+
+      - name: Verify dylib architecture
+        run: |
+          file ph1mlbb.dylib
+          otool -L ph1mlbb.dylib
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mlbb_m_dylib
-          path: mlbb_m.dylib
+          name: ph1mlbb_dylib
+          path: ph1mlbb.dylib
