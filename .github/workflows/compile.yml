@@ -21,50 +21,37 @@ jobs:
         run: |
           mkdir -p include
           
-          # Create substrate.h
+          # Create substrate.h dummy for compilation
           cat > include/substrate.h << 'EOF'
           #ifndef SUBSTRATE_H
           #define SUBSTRATE_H
-          
-          #include <cstddef>
-          
+          #include <stdbool.h>
           #ifdef __cplusplus
           extern "C" {
           #endif
-          
           void MSHookFunction(void *symbol, void *replace, void **result);
-          
           #ifdef __cplusplus
           }
           #endif
-          
           #endif
           EOF
           
-          # Create stdatomic.h fallback
+          # Create stdatomic.h fallback if needed
           cat > include/stdatomic.h << 'EOF'
           #ifndef STDATOMIC_H
           #define STDATOMIC_H
-          
+          #include <stdbool.h>
           #define _Atomic volatile
-          
           typedef _Bool atomic_bool;
-          
-          static inline void atomic_store(volatile _Bool *obj, _Bool value) {
-              *obj = value;
-          }
-          
-          static inline _Bool atomic_load(volatile _Bool *obj) {
-              return *obj;
-          }
-          
+          static inline void atomic_store(volatile _Bool *obj, _Bool value) { *obj = value; }
+          static inline _Bool atomic_load(volatile _Bool *obj) { return *obj; }
           #endif
           EOF
 
-      - name: Compile tweak.mm to ph1mlbb.dylib
+      - name: Compile pH1Pro.m to ph1mlbb.dylib
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun -sdk iphoneos clang++ \
+          xcrun -sdk iphoneos clang \
             -dynamiclib \
             -arch arm64 \
             -isysroot "$SDK" \
@@ -77,12 +64,11 @@ jobs:
             -framework CoreGraphics \
             -framework QuartzCore \
             -framework ObjectiveC \
-            tweak.mm \
+            pH1Pro.m \
             -o ph1mlbb.dylib
 
       - name: Sign dylib with entitlements
         run: |
-          # Create entitlements file
           cat > entitlements.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -102,7 +88,7 @@ jobs:
           
           ldid -Sentitlements.plist ph1mlbb.dylib
 
-      - name: Verify dylib architecture
+      - name: Verify dylib
         run: |
           file ph1mlbb.dylib
           otool -L ph1mlbb.dylib
