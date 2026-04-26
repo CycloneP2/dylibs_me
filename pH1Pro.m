@@ -473,7 +473,8 @@ NSString* read_unity_string(uintptr_t ptr) {
 }
 
 - (void)onSwitch:(UISwitch *)sw {
-    _Atomic BOOL *state = (_Atomic BOOL *)[objc_getAssociatedObject(sw, "state_ptr") pointerValue];
+    NSValue *val = objc_getAssociatedObject(sw, "state_ptr");
+    _Atomic BOOL *state = (_Atomic BOOL *)[val pointerValue];
     if (!state) return;
     *state = sw.on;
     
@@ -487,7 +488,8 @@ NSString* read_unity_string(uintptr_t ptr) {
 }
 
 - (void)onSlider:(UISlider *)sl {
-    _Atomic float *state = (_Atomic float *)[objc_getAssociatedObject(sl, "state_ptr") pointerValue];
+    NSValue *val = objc_getAssociatedObject(sl, "state_ptr");
+    _Atomic float *state = (_Atomic float *)[val pointerValue];
     if (state) *state = sl.value;
 }
 
@@ -515,7 +517,11 @@ NSString* read_unity_string(uintptr_t ptr) {
             }
         }
     }
+    
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     if (!win) win = [UIApplication sharedApplication].keyWindow;
+    #pragma clang diagnostic pop
     if (!win) win = [[UIApplication sharedApplication] windows].firstObject;
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Account Reset" 
@@ -650,7 +656,11 @@ static void initialize() {
                     }
                 }
             }
+            
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
             if (!win) win = [UIApplication sharedApplication].keyWindow;
+            #pragma clang diagnostic pop
             if (!win) win = [[UIApplication sharedApplication] windows].firstObject;
 
             // Add ESP Overlay
