@@ -1,5 +1,5 @@
 // ESPOnly.mm - EDGY ESP (Lightweight + Full Feature)
-// Only ESP, no anti-report, no DNS bypass, just pure ESP
+// FIXED: Default ON, Better error handling, Working overlay
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
@@ -19,7 +19,7 @@ typedef struct { float x, y, z; } Vector3;
 #define OFF_SHOW_MONSTERS       0x80        
 #define OFF_LOCAL_PLAYER        0x50        
 
-#define OFF_ENTITY_POS          0x310       // IMPORTANT: 0x310 not 0x30!
+#define OFF_ENTITY_POS          0x310       
 #define OFF_ENTITY_CAMP         0xD8        
 #define OFF_ENTITY_HP           0x1AC       
 #define OFF_ENTITY_HP_MAX       0x1B0       
@@ -31,16 +31,16 @@ typedef struct { float x, y, z; } Vector3;
 #define RVA_CAMERA_MAIN         0x89FF130   
 
 // ============================================
-// ESP SETTINGS (Bisa diubah manual di sini)
+// ESP SETTINGS (DEFAULT = ON AGAR LANGSUNG JALAN)
 // ============================================
-static BOOL espEnabled = NO;
-static BOOL showEnemyBox = NO;
-static BOOL showEnemyHp = NO;
-static BOOL showEnemyName = NO;
-static BOOL showEnemyLine = NO;
-static BOOL showMonsterEsp = NO;
-static BOOL showTeamEsp = NO;
-static BOOL showDistance = NO;
+static BOOL espEnabled = YES;
+static BOOL showEnemyBox = YES;
+static BOOL showEnemyHp = YES;
+static BOOL showEnemyName = YES;
+static BOOL showEnemyLine = YES;
+static BOOL showMonsterEsp = YES;
+static BOOL showTeamEsp = NO;      // Biar gak rame
+static BOOL showDistance = YES;
 
 // Warna ESP
 static float enemyR = 1.0, enemyG = 0.2, enemyB = 0.2;   // Merah musuh
@@ -108,7 +108,7 @@ float distance3D(Vector3 a, Vector3 b) {
 }
 
 - (void)redrawESP {
-    if (espEnabled) [self setNeedsDisplay];
+    [self setNeedsDisplay]; // Always redraw, check espEnabled inside drawRect
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -118,14 +118,16 @@ float distance3D(Vector3 a, Vector3 b) {
         // Get BattleManager Instance
         uintptr_t bmAddr = *(uintptr_t*)(g_unityBase + RVA_BATTLE_MANAGER_INST);
         if (!is_valid(bmAddr)) return;
+        
         uintptr_t bm = *(uintptr_t*)bmAddr;
         if (!is_valid(bm)) {
-            bm = bmAddr;  // fallback
+            bm = bmAddr;
             if (!is_valid(bm)) return;
         }
         
         // Get Camera
         void* (*get_main)() = (void*(*)())(g_unityBase + RVA_CAMERA_MAIN);
+        if (!get_main) return;
         void* cam = get_main();
         if (!cam) return;
         
@@ -135,8 +137,13 @@ float distance3D(Vector3 a, Vector3 b) {
         
         // Get Local Player & Team
         uintptr_t localPlayer = *(uintptr_t*)(bm + OFF_LOCAL_PLAYER);
-        int myTeam = (is_valid(localPlayer)) ? *(int*)(localPlayer + OFF_ENTITY_CAMP) : 0;
-        Vector3 myPos = (is_valid(localPlayer)) ? *(Vector3*)(localPlayer + OFF_ENTITY_POS) : (Vector3){0,0,0};
+        int myTeam = 0;
+        Vector3 myPos = {0,0,0};
+        
+        if (is_valid(localPlayer)) {
+            myTeam = *(int*)(localPlayer + OFF_ENTITY_CAMP);
+            myPos = *(Vector3*)(localPlayer + OFF_ENTITY_POS);
+        }
         
         CGContextRef ctx = UIGraphicsGetCurrentContext();
         if (!ctx) return;
@@ -156,19 +163,17 @@ float distance3D(Vector3 a, Vector3 b) {
                     
                     int team = *(int*)(entity + OFF_ENTITY_CAMP);
                     
-                    // Skip if same team and showTeamEsp is off
                     if (team == myTeam && !showTeamEsp) continue;
-                    if (team == myTeam && showTeamEsp) {
-                        // Draw team with green color
-                        [self drawEntity:entity withCam:cam w2s:w2s ctx:ctx rect:rect 
-                                    color:[UIColor colorWithRed:teamR green:teamG blue:teamB alpha:1.0] 
-                                   isTeam:YES myPos:myPos];
-                    } else if (team != myTeam) {
-                        // Draw enemy with red color
-                        [self drawEntity:entity withCam:cam w2s:w2s ctx:ctx rect:rect 
-                                    color:[UIColor colorWithRed:enemyR green:enemyG blue:enemyB alpha:1.0] 
-                                   isTeam:NO myPos:myPos];
+                    
+                    UIColor *color;
+                    if (team == myTeam) {
+                        color = [UIColor colorWithRed:teamR green:teamG blue:teamB alpha:1.0];
+                    } else {
+                        color = [UIColor colorWithRed:enemyR green:enemyG blue:enemyB alpha:1.0];
                     }
+                    
+                    [self drawEntity:entity withCam:cam w2s:w2s ctx:ctx rect:rect 
+                                color:color isTeam:(team == myTeam) myPos:myPos];
                 }
             }
         }
@@ -185,8 +190,8 @@ float distance3D(Vector3 a, Vector3 b) {
                         uintptr_t entity = *(uintptr_t*)(monsterArray + 0x20 + (i * 8));
                         if (!is_valid(entity)) continue;
                         
-                        // Filter important monsters (Lord, Turtle, Buff)
                         int m_id = *(int*)(entity + OFF_ENTITY_ID);
+                        // Lord (1001/1002), Turtle (2001), Buff (3001/3002)
                         if (m_id == 1001 || m_id == 1002 || m_id == 2001 || m_id == 3001 || m_id == 3002) {
                             [self drawMonster:entity withCam:cam w2s:w2s ctx:ctx rect:rect 
                                          color:[UIColor colorWithRed:monsterR green:monsterG blue:monsterB alpha:1.0]
@@ -211,47 +216,31 @@ float distance3D(Vector3 a, Vector3 b) {
     Vector3 pos = *(Vector3*)(entity + OFF_ENTITY_POS);
     Vector3 screenPos = w2s(cam, pos);
     
-    if (screenPos.z < 1.0f) return; // Not visible
+    if (screenPos.z < 0.5f) return;
     
     float x = screenPos.x;
     float y = rect.size.height - screenPos.y;
     
     // Calculate box size based on distance
-    float boxWidth = 800.0f / screenPos.z;
+    float boxWidth = 600.0f / screenPos.z;
     float boxHeight = boxWidth * 1.3f;
     
-    // Limit box size (no giant boxes)
-    if (boxWidth > 180) boxWidth = 180;
-    if (boxHeight > 234) boxHeight = 234;
-    if (boxWidth < 30) boxWidth = 30;
-    if (boxHeight < 39) boxHeight = 39;
+    // Limit box size
+    if (boxWidth > 150) boxWidth = 150;
+    if (boxHeight > 195) boxHeight = 195;
+    if (boxWidth < 25) boxWidth = 25;
+    if (boxHeight < 33) boxHeight = 33;
     
-    // 1. Draw ESP BOX (2D Rectangle)
+    // 1. Draw ESP BOX
     if (showEnemyBox) {
         CGContextSetStrokeColorWithColor(ctx, color.CGColor);
         CGContextSetLineWidth(ctx, 1.5);
         CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight, boxWidth, boxHeight));
-        
-        // Add corner decorations (makes it look pro)
-        float cornerSize = boxWidth * 0.15;
-        CGContextSetLineWidth(ctx, 2.0);
-        // Top-left corner
-        CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight, cornerSize, 2));
-        CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight, 2, cornerSize));
-        // Top-right corner
-        CGContextStrokeRect(ctx, CGRectMake(x + boxWidth/2 - cornerSize, y - boxHeight, cornerSize, 2));
-        CGContextStrokeRect(ctx, CGRectMake(x + boxWidth/2 - 2, y - boxHeight, 2, cornerSize));
-        // Bottom-left corner
-        CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - 2, cornerSize, 2));
-        CGContextStrokeRect(ctx, CGRectMake(x - boxWidth/2, y - cornerSize, 2, cornerSize));
-        // Bottom-right corner
-        CGContextStrokeRect(ctx, CGRectMake(x + boxWidth/2 - cornerSize, y - 2, cornerSize, 2));
-        CGContextStrokeRect(ctx, CGRectMake(x + boxWidth/2 - 2, y - cornerSize, 2, cornerSize));
     }
     
-    // 2. Draw SNAPLINE (from center to target)
+    // 2. Draw SNAPLINE (dari tengah layar ke target)
     if (showEnemyLine) {
-        CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.35].CGColor);
+        CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.4].CGColor);
         CGContextSetLineWidth(ctx, 1.0);
         CGContextBeginPath(ctx);
         CGContextMoveToPoint(ctx, rect.size.width/2, rect.size.height/2);
@@ -264,36 +253,39 @@ float distance3D(Vector3 a, Vector3 b) {
         int hp = *(int*)(entity + OFF_ENTITY_HP);
         int maxHp = *(int*)(entity + OFF_ENTITY_HP_MAX);
         int shield = *(int*)(entity + OFF_ENTITY_SHIELD);
-        float hpPercent = (float)hp / (float)maxHp;
-        float shieldPercent = (float)shield / (float)maxHp;
         
-        // Background bar
-        CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.15 alpha:0.8].CGColor);
-        CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth, 4));
-        
-        // HP bar (green -> yellow -> red)
-        UIColor *hpColor;
-        if (hpPercent > 0.6) hpColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:1.0];
-        else if (hpPercent > 0.3) hpColor = [UIColor yellowColor];
-        else hpColor = [UIColor redColor];
-        
-        CGContextSetFillColorWithColor(ctx, hpColor.CGColor);
-        CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth * hpPercent, 4));
-        
-        // Shield bar (if exists)
-        if (shield > 0 && shieldPercent > 0) {
-            CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.85 alpha:0.9].CGColor);
-            CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth * MIN(shieldPercent, 1.0), 4));
+        if (maxHp > 0) {
+            float hpPercent = (float)hp / (float)maxHp;
+            float shieldPercent = (float)shield / (float)maxHp;
+            
+            // Background bar
+            CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.15 alpha:0.8].CGColor);
+            CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth, 4));
+            
+            // HP bar
+            UIColor *hpColor;
+            if (hpPercent > 0.6) hpColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:1.0];
+            else if (hpPercent > 0.3) hpColor = [UIColor yellowColor];
+            else hpColor = [UIColor redColor];
+            
+            CGContextSetFillColorWithColor(ctx, hpColor.CGColor);
+            CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth * hpPercent, 4));
+            
+            // Shield bar
+            if (shield > 0 && shieldPercent > 0) {
+                CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.85 alpha:0.9].CGColor);
+                CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 8, boxWidth * fmin(shieldPercent, 1.0), 4));
+            }
+            
+            // HP Text
+            NSString *hpText = [NSString stringWithFormat:@"❤️ %d", hp];
+            UIFont *hpFont = [UIFont boldSystemFontOfSize:10];
+            NSDictionary *hpAttrs = @{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: hpFont};
+            [hpText drawAtPoint:CGPointMake(x + boxWidth/2 + 3, y - boxHeight - 6) withAttributes:hpAttrs];
         }
-        
-        // HP Text
-        NSString *hpText = [NSString stringWithFormat:@"❤️ %d", hp];
-        UIFont *hpFont = [UIFont boldSystemFontOfSize:10];
-        NSDictionary *hpAttrs = @{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: hpFont};
-        [hpText drawAtPoint:CGPointMake(x + boxWidth/2 + 3, y - boxHeight - 6) withAttributes:hpAttrs];
     }
     
-    // 4. Draw HERO NAME
+    // 4. Draw HERO NAME (hanya untuk musuh)
     if (showEnemyName && !isTeam) {
         uintptr_t namePtr = *(uintptr_t*)(entity + OFF_PLAYER_HERO_NAME);
         NSString *heroName = readIl2CppString(namePtr);
@@ -308,10 +300,12 @@ float distance3D(Vector3 a, Vector3 b) {
     // 5. Draw DISTANCE
     if (showDistance) {
         float dist = distance3D(myPos, pos);
-        NSString *distText = [NSString stringWithFormat:@"%.0fｍ", dist];
-        UIFont *distFont = [UIFont systemFontOfSize:9];
-        NSDictionary *distAttrs = @{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.8 alpha:1.0], NSFontAttributeName: distFont};
-        [distText drawAtPoint:CGPointMake(x - boxWidth/2, y + 5) withAttributes:distAttrs];
+        if (dist > 0 && dist < 500) {
+            NSString *distText = [NSString stringWithFormat:@"%.0fm", dist];
+            UIFont *distFont = [UIFont systemFontOfSize:9];
+            NSDictionary *distAttrs = @{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.8 alpha:1.0], NSFontAttributeName: distFont};
+            [distText drawAtPoint:CGPointMake(x - 15, y + 5) withAttributes:distAttrs];
+        }
     }
 }
 
@@ -321,16 +315,16 @@ float distance3D(Vector3 a, Vector3 b) {
     Vector3 pos = *(Vector3*)(entity + OFF_ENTITY_POS);
     Vector3 screenPos = w2s(cam, pos);
     
-    if (screenPos.z < 1.0f) return;
+    if (screenPos.z < 0.5f) return;
     
     float x = screenPos.x;
     float y = rect.size.height - screenPos.y;
-    float boxWidth = 600.0f / screenPos.z;
+    float boxWidth = 500.0f / screenPos.z;
     float boxHeight = boxWidth * 1.2f;
     
-    if (boxWidth > 150) boxWidth = 150;
-    if (boxHeight > 180) boxHeight = 180;
-    if (boxWidth < 25) boxWidth = 25;
+    if (boxWidth > 120) boxWidth = 120;
+    if (boxHeight > 144) boxHeight = 144;
+    if (boxWidth < 20) boxWidth = 20;
     
     // Monster Box
     CGContextSetStrokeColorWithColor(ctx, color.CGColor);
@@ -340,23 +334,36 @@ float distance3D(Vector3 a, Vector3 b) {
     // Monster HP
     int hp = *(int*)(entity + OFF_ENTITY_HP);
     int maxHp = *(int*)(entity + OFF_ENTITY_HP_MAX);
-    float hpPercent = (float)hp / (float)maxHp;
-    
-    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.15 alpha:0.8].CGColor);
-    CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 6, boxWidth, 3));
-    CGContextSetFillColorWithColor(ctx, color.CGColor);
-    CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 6, boxWidth * hpPercent, 3));
+    if (maxHp > 0) {
+        float hpPercent = (float)hp / (float)maxHp;
+        
+        CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:0.15 alpha:0.8].CGColor);
+        CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 6, boxWidth, 3));
+        CGContextSetFillColorWithColor(ctx, color.CGColor);
+        CGContextFillRect(ctx, CGRectMake(x - boxWidth/2, y - boxHeight - 6, boxWidth * hpPercent, 3));
+    }
     
     // Monster Name based on ID
     int m_id = *(int*)(entity + OFF_ENTITY_ID);
     NSString *monsterName = @"🐉 MONSTER";
     if (m_id == 1001 || m_id == 1002) monsterName = @"👑 LORD";
     else if (m_id == 2001) monsterName = @"🐢 TURTLE";
-    else if (m_id == 3001 || m_id == 3002) monsterName = @"💀 BUFF";
+    else if (m_id == 3001 || m_id == 3002) monsterName = @"⚡ BUFF";
     
     UIFont *nameFont = [UIFont boldSystemFontOfSize:9];
     NSDictionary *attrs = @{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: nameFont};
-    [monsterName drawAtPoint:CGPointMake(x - 30, y - boxHeight - 15) withAttributes:attrs];
+    [monsterName drawAtPoint:CGPointMake(x - 25, y - boxHeight - 15) withAttributes:attrs];
+    
+    // Distance for monster
+    if (showDistance) {
+        float dist = distance3D(myPos, pos);
+        if (dist > 0 && dist < 500) {
+            NSString *distText = [NSString stringWithFormat:@"%.0fm", dist];
+            UIFont *distFont = [UIFont systemFontOfSize:9];
+            NSDictionary *distAttrs = @{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.8 alpha:1.0], NSFontAttributeName: distFont};
+            [distText drawAtPoint:CGPointMake(x - 15, y + 5) withAttributes:distAttrs];
+        }
+    }
 }
 
 @end
@@ -368,7 +375,6 @@ float distance3D(Vector3 a, Vector3 b) {
 @interface ESPMenuManager : NSObject
 @property (nonatomic, strong) UIButton *fab;
 @property (nonatomic, strong) UIView *menuPanel;
-@property (nonatomic, assign) BOOL isMenuVisible;
 + (instancetype)shared;
 - (void)setupWithWindow:(UIWindow *)window;
 - (void)toggleMenu;
@@ -404,7 +410,12 @@ float distance3D(Vector3 a, Vector3 b) {
     
     // ESP Overlay
     ESPOverlayView *espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
+    espView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [window addSubview:espView];
+    
+    // Pastikan overlay di atas semua view
+    [window bringSubviewToFront:espView];
+    [window bringSubviewToFront:self.fab];
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)p {
@@ -458,7 +469,7 @@ float distance3D(Vector3 a, Vector3 b) {
     
     // Helper to add toggle
     __weak typeof(self) weakSelf = self;
-    auto addToggle = ^(NSString *title, BOOL *value, int yOffset) {
+    void (^addToggle)(NSString*, BOOL*, int) = ^(NSString *title, BOOL *value, int yOffset) {
         UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(20, yOffset, 160, 32)];
         lbl.text = title;
         lbl.textColor = [UIColor whiteColor];
@@ -501,6 +512,15 @@ __attribute__((constructor))
 static void initializeESP() {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         g_unityBase = get_base("UnityFramework");
+        
+        // FALLBACK: coba nama framework lain
+        if (!g_unityBase) {
+            g_unityBase = get_base("Unity");
+        }
+        if (!g_unityBase) {
+            g_unityBase = get_base("MobileMLBB");
+        }
+        
         if (g_unityBase) {
             UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
             if (!keyWindow) {
